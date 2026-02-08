@@ -1,6 +1,6 @@
 export interface ShopeeQueryParam {
-storeId: string;
-dealId: string;
+    storeId: string;
+    dealId: string;
 }
 
 export interface ShopeeScrapeResult {
