@@ -4,7 +4,8 @@ import router from './api/routes';
 const app = express();
 const PORT = 3000;
 
-app.use('/api', router);
+app.use(express.json());
+app.use('/', router);
 
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);

@@ -1,10 +1,10 @@
 import { Request, Response } from 'express';
 import { ShopeeQueryParam } from '../../types';
 import { uptime } from 'node:process';
-import { scraperBot } from '../../botAutomator/scraperbot';
+import { scraperBot } from '../../botAutomator/scraperbot.js';
 
 export const scraperController = {
-  scrapeShopee: async (req: Request<{}, any, any, ShopeeQueryParam>, res: Response) => {
+  async scrapeShopee(req: Request<{}, any, any, ShopeeQueryParam>, res: Response) {
     try {
 
       const { storeId, dealId } = req.query;
@@ -22,7 +22,7 @@ export const scraperController = {
     }
   },
 
-  healthCheck: async (_req: Request, res: Response) => {
+  async healthCheck (_req: Request, res: Response) {
     res.status(200).json({
       status: 'OK',
       timestamp: new Date().toISOString(),

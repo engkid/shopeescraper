@@ -59,6 +59,7 @@ Example response:
 - Method: `GET`
 - URL: `/api/shopee`
 - Query params (planned): `storeId`, `dealId`
+- http://localhost:3000/shopee?storeId=178926468&dealId=21448123549
 
 Current response:
 
