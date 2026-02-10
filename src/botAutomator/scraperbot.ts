@@ -45,7 +45,7 @@ export const scraperBot = {
     console.log('Starting scrapeShopee');
 
     try {
-      browser = await browserManager.createBrowser();
+      browser = await browserManager.createBrowserForBrowserless();
       page = await browserManager.buildPage(browser);
       console.log('Browser and page created');
 
