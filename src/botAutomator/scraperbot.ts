@@ -1,4 +1,4 @@
-import { Browser, Page } from 'playwright';
+import { Browser } from 'playwright';
 import { ScrapingResult, ShopeeScrapeResult } from '../types/index.js';
 import { browserManager } from '../utils/BrowserManager.js';
 import { scraperRunner } from './scraperRunner.js';
@@ -40,13 +40,12 @@ export const scraperBot = {
   async scrapeShopee(storeId: string, dealId: string): Promise<ScrapingResult> {
     let lastError: Error | null = null;
     let browser: Browser | null = null;
-    let page: Page | null = null;
 
     console.log('Starting scrapeShopee');
 
     try {
       browser = await browserManager.createBrowserForBrowserless();
-      page = await browserManager.buildPage(browser);
+      const page = await browserManager.buildPage(browser);
       console.log('Browser and page created');
 
       const runnerOutput = await scraperRunner.runScraper(page, { storeId, dealId });

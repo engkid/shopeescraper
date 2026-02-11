@@ -1,9 +1,6 @@
 import { chromium, Browser, Page } from 'playwright';
 import config from '../configurations';
 
-const token = '2TxEFYr7yV7mObu171a6549a55d313233aa182ab3b7daef6d'
-const endpoint = `https://production-sfo.browserless.io/chrome/bql?token=${token}`;
-
 export class BrowserManager {
 
   async createBrowserForBrowserless(): Promise<Browser> {
@@ -16,25 +13,6 @@ export class BrowserManager {
       return browser;
     } catch (error) {
       console.log('Error connecting to browserless:', error);
-      throw error;
-    }
-  }
-
-  async createBrowser(): Promise<Browser> {
-    const connectionUrl = config.brightDataWsEndpoint;
-
-    if (!connectionUrl) {
-      throw new Error(
-        'Missing Bright Data browser endpoint. Set `BROWSER_API_ENDPOINTT` in environment variables.'
-      );
-    }
-
-    try {
-      const connectionResult = await chromium.connectOverCDP(connectionUrl);
-      console.log('Connected to remote browser successfully');
-      return connectionResult;
-    } catch (error) {
-      console.log('Error connecting to remote browser:', error);
       throw error;
     }
   }

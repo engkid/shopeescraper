@@ -1,4 +1,3 @@
-import { url } from 'inspector/promises';
 import config from '../configurations/index.js';
 import { ShopeeQueryParam, ShopeeScrapeResult } from '../types';
 import { Page } from 'playwright';
