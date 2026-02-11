@@ -1,6 +1,6 @@
 # Shopee Scraper API
 
-Simple Express + TypeScript API for Shopee scraping workflows.
+Express + TypeScript API to scrape Shopee product payloads using Playwright.
 
 ## Requirements
 
@@ -13,11 +13,18 @@ Simple Express + TypeScript API for Shopee scraping workflows.
 npm install
 ```
 
-or
+## Environment
 
-```bash
-pnpm install
-```
+Create a `.env` file (or copy from `.env.sample`) and set:
+
+- `NAVIGATION_TIMEOUT`
+- `SHOPEE_BASE_URL`
+- `USER_AGENT`
+- `BROWSER_API_ENDPOINT` (remote CDP endpoint)
+
+Notes:
+- Server port is currently hardcoded to `3000` in `src/index.ts`.
+- Browserless reconnect settings are currently configured directly in `src/botAutomator/scraperRunner.ts`.
 
 ## Run
 
@@ -25,54 +32,61 @@ pnpm install
 npm start
 ```
 
-`npm start` will compile TypeScript (`tsc`) and run `dist/index.js`.
+`npm start` compiles TypeScript and runs `dist/index.js`.
 
-Server default URL:
+Base URL:
 
 `http://localhost:3000`
 
 ## API Endpoints
 
-### Health Check
+### Health
 
 - Method: `GET`
-- URL: `/api/health`
-
-Example:
+- URL: `/health`
 
 ```bash
-curl -i http://localhost:3000/api/health
+curl -i http://localhost:3000/health
 ```
 
-Example response:
+### Scrape Shopee
+
+- Method: `GET`
+- URL: `/shopee`
+- Query: `storeId`, `dealId`
+
+```bash
+curl "http://localhost:3000/shopee?storeId=178926468&dealId=21448123549"
+```
+
+Success response shape:
 
 ```json
 {
-  "status": "OK",
-  "timestamp": "2026-02-08T00:00:00.000Z",
-  "uptime": 12.345
+  "success": true,
+  "result": {
+    "error": null,
+    "error_msg": null,
+    "data": {
+      "item": {}
+    }
+  }
 }
 ```
 
-### Shopee Scraper Endpoint
-
-- Method: `GET`
-- URL: `/api/shopee`
-- Query params (planned): `storeId`, `dealId`
-- http://localhost:3000/shopee?storeId=178926468&dealId=21448123549
-
-Current response:
+Failure response shape:
 
 ```json
 {
-  "message": "Shopee scraper endpoint"
+  "success": false,
+  "error": "Failed to scrape Shopee product after multiple attempts"
 }
 ```
 
 ## Scripts
 
-- `npm run build` - compile TypeScript to `dist/`
-- `npm start` - build then run server
+- `npm run build`: compile TypeScript to `dist/`
+- `npm start`: build and run API server
 
 ## Project Structure
 
@@ -80,15 +94,24 @@ Current response:
 src/
   index.ts
   api/
-    routes/index.ts
-    controller/shopee.scrapercontroller.ts
+    controller/
+      shopee.scrapercontroller.ts
+    routes/
+      index.ts
   botAutomator/
-    scraper.bot.ts
+    scraperbot.ts
+    scraperRunner.ts
+  configurations/
+    index.ts
   types/
     index.ts
+  utils/
+    BrowserManager.ts
 ```
 
-## Notes
+## High-Level Flow
 
-- Scraper implementation in `src/botAutomator/scraper.bot.ts` is still a scaffold.
-- Health check is useful for readiness/liveness checks in deployment.
+1. Request enters `GET /shopee`.
+2. Controller validates query and calls `scraperBot.scrapeShopee`.
+3. Bot creates a browser/page and executes `scraperRunner.runScraper`.
+4. Runner navigates to Shopee product page, intercepts target API responses, and returns parsed JSON payload.
