@@ -7,7 +7,7 @@ import playwright from 'playwright-core';
 const PREVIEW_LIMIT = 400;
 const timeout = 45000;
 
-const token = "2TxEFYr7yV7mObu171a6549a55d313233aa182ab3b7daef6d";
+const token = config.browserless.apiToken;
 
 const query = `
   mutation Reconnect($url: String!) {
@@ -20,7 +20,7 @@ const query = `
   }
 `;
 
-const endpoint = `https://production-sfo.browserless.io/chrome/bql?token=${token}`;
+const endpoint = `${config.browserless.baseUrl}?token=${token}`;
 
 export type ScraperRunnerResult = {
   result: ShopeeScrapeResult | null;
@@ -76,6 +76,10 @@ export class ScraperRunner {
           console.log(`[Browserless-Reconnect] Reconnect response status: ${res.status}`);
           const { data } = await res.json();
           console.log('[Browserless-Reconnect] Reconnect payload received');
+          if (!data?.reconnect?.browserWSEndpoint) {
+            console.warn('[Browserless-Reconnect] Missing reconnect.browserWSEndpoint in response payload');
+            return;
+          }
           const ws = data.reconnect.browserWSEndpoint;
           console.log(`[Browserless-Reconnect] browserWSEndpoint: ${ws}`);
 
