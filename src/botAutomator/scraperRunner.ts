@@ -1,25 +1,9 @@
 import config from '../configurations/index.js';
 import { ShopeeQueryParam, ShopeeScrapeResult } from '../types';
 import { Page } from 'playwright';
-import playwright from 'playwright-core';
 
 const PREVIEW_LIMIT = 400;
-const timeout = 45000;
-
-const token = config.browserless.apiToken;
-
-const query = `
-  mutation Reconnect($url: String!) {
-    goto(url: $url, waitUntil: networkIdle) {
-      status
-    }
-    reconnect(timeout: ${timeout}) {
-      browserWSEndpoint
-    }
-  }
-`;
-
-const endpoint = `${config.browserless.baseUrl}?token=${token}`;
+const SCRAPER_TIMEOUT_MS = 45000;
 
 export type ScraperRunnerResult = {
   result: ShopeeScrapeResult | null;
@@ -33,7 +17,6 @@ export class ScraperRunner {
   ];
 
   async runScraper(page: Page, param: ShopeeQueryParam): Promise<ScraperRunnerResult> {
-
     const { storeId, dealId } = param;
 
     console.log(`scrape starting for storeId=${storeId}, dealId=${dealId}`);
@@ -53,85 +36,26 @@ export class ScraperRunner {
     await page.route('**/*', async (route) => {
       console.log(`Intercepted request: ${route.request().url()}`);
       await route.continue();
-    })
-
+    });
 
     page.on('request', (request) => {
-
-      // get target apis
-      if (this.targetAPIs.some(api => request.url().includes(api))) {
+      if (this.targetAPIs.some((api) => request.url().includes(api))) {
         console.log('--- Target API Request Intercepted ---');
-        console.log('[Browserless-Reconnect] Preparing reconnect request payload');
-
-        const options = {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ query, variables: { url: request.url() } }),
-        };
-
-        (async () => {
-          console.log(`[Browserless-Reconnect] Calling reconnect endpoint: ${endpoint}`);
-          const res = await fetch(endpoint, options);
-          console.log(`[Browserless-Reconnect] Reconnect response status: ${res.status}`);
-          const { data } = await res.json();
-          console.log('[Browserless-Reconnect] Reconnect payload received');
-          if (!data?.reconnect?.browserWSEndpoint) {
-            console.warn('[Browserless-Reconnect] Missing reconnect.browserWSEndpoint in response payload');
-            return;
-          }
-          const ws = data.reconnect.browserWSEndpoint;
-          console.log(`[Browserless-Reconnect] browserWSEndpoint: ${ws}`);
-
-          const wsWithToken = ws + "?token=" + token;
-          console.log('[Browserless-Reconnect] Connecting playwright over CDP');
-          const browser = await playwright.chromium.connectOverCDP(wsWithToken);
-          console.log('[Browserless-Reconnect] CDP connection established, closing browser');
-
-          await browser.close();
-          console.log('[Browserless-Reconnect] Browser closed');
-        })();
-
         console.log(`Request made: ${request.url()}`);
         console.log(`Request method: ${request.method()}`);
         console.log(`Request headers: ${JSON.stringify(request.headers(), null, 2)}`);
       }
-    })
-
-
+    });
   }
 
   private async waitForTargetApiResponse(page: Page): Promise<ScraperRunnerResult> {
     try {
       const response = await page.waitForResponse(
         (networkResponse) => this.targetAPIs.some((api) => networkResponse.url().includes(api)),
-        { timeout: timeout }
+        { timeout: SCRAPER_TIMEOUT_MS }
       );
 
-      const responseBody = await response.text();
-      const preview = responseBody.slice(0, PREVIEW_LIMIT);
-      console.log(`Response status: ${response.status()}`);
-      console.log(`Response body (preview): ${preview}${responseBody.length > PREVIEW_LIMIT ? '...' : ''}`);
-
-      if (!responseBody.trim()) {
-        return {
-          result: null,
-          error: 'Target Shopee API returned an empty response body.'
-        };
-      }
-
-      let parsedBody: unknown;
-      try {
-        parsedBody = JSON.parse(responseBody);
-      } catch {
-        return {
-          result: null,
-          error: 'Target Shopee API returned a non-JSON response body.'
-        };
-      }
-
-      return {
-        result: parsedBody as ShopeeScrapeResult
-      };
+      return this.parseApiResponse(response.status(), await response.text());
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return {
@@ -141,12 +65,38 @@ export class ScraperRunner {
     }
   }
 
+  private parseApiResponse(status: number, responseBody: string): ScraperRunnerResult {
+    const preview = responseBody.slice(0, PREVIEW_LIMIT);
+    console.log(`Response status: ${status}`);
+    console.log(`Response body (preview): ${preview}${responseBody.length > PREVIEW_LIMIT ? '...' : ''}`);
+
+    if (!responseBody.trim()) {
+      return {
+        result: null,
+        error: 'Target Shopee API returned an empty response body.'
+      };
+    }
+
+    let parsedBody: unknown;
+    try {
+      parsedBody = JSON.parse(responseBody);
+    } catch {
+      return {
+        result: null,
+        error: 'Target Shopee API returned a non-JSON response body.'
+      };
+    }
+
+    return {
+      result: parsedBody as ShopeeScrapeResult
+    };
+  }
+
   private async navigateToDestinationPage(page: Page, url: string): Promise<void> {
     try {
-
       const navigationResponse = await page.goto(url, {
         waitUntil: 'domcontentloaded',
-        timeout: 30000,
+        timeout: 30000
       });
 
       console.log(`Page navigation response status: ${navigationResponse?.status()}`);
@@ -156,7 +106,6 @@ export class ScraperRunner {
       return;
     } catch (error) {
       console.error('Error during page navigation:', error);
-
     }
 
     throw new Error('Failed to navigate to Shopee product page after multiple attempts');
@@ -194,7 +143,6 @@ export class ScraperRunner {
       window.dispatchEvent(new Event('scroll'));
     });
   }
-
 }
 
 export const scraperRunner = new ScraperRunner();
