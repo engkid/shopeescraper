@@ -1,0 +1,52 @@
+@startuml
+autonumber
+
+actor "API Client" as Client
+participant "Express Route (/shopee)" as Router
+participant "scraperController" as Controller
+participant "scraperBot" as Bot
+participant "BrowserManager" as BrowserMgr
+participant "Browserless/CDP" as Browserless
+participant "scraperRunner" as Runner
+participant "Playwright Page" as Page
+participant "Shopee Product Page" as ShopeeWeb
+participant "Shopee Target API" as ShopeeAPI
+
+Client -> Router: GET /shopee?storeId&dealId
+Router -> Controller: scrapeShopee(req)
+Controller -> Bot: scrapeShopee(storeId, dealId)
+
+Bot -> BrowserMgr: createBrowserForBrowserless()
+BrowserMgr -> Browserless: connectOverCDP(token)
+Browserless --> BrowserMgr: Browser session
+BrowserMgr --> Bot: browser
+
+Bot -> BrowserMgr: buildPage(browser)
+BrowserMgr --> Bot: page
+
+Bot -> Runner: runScraper(page, {storeId, dealId})
+Runner -> Page: setupRequestInterception()
+Runner -> Page: goto(shopee product URL)
+Page -> ShopeeWeb: Open product page
+ShopeeWeb -> ShopeeAPI: Request /api/v4/pdp/get_pc|get_rw
+ShopeeAPI --> Page: API response payload
+
+Runner -> Runner: waitForTargetApiResponse()
+Runner -> Page: capturePageView() screenshot
+Runner -> Runner: parseApiResponse() + collect captcha signals
+Runner --> Bot: { result, captchaSignals, error? }
+
+alt result.error == 90309999
+  Bot --> Controller: success=false, captcha error
+else captchaSignals >= 2
+  Bot --> Controller: success=false, captcha detected by multi-signal rule
+else payload has other error
+  Bot --> Controller: success=false, payload error
+else success
+  Bot --> Controller: success=true, result
+end
+
+Controller --> Client: JSON response
+Bot -> BrowserMgr: closeBrowser(browser) (finally)
+
+@enduml

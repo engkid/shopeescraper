@@ -3,8 +3,26 @@ import { ScrapingResult, ShopeeScrapeResult } from '../types/index.js';
 import { browserManager } from '../utils/BrowserManager.js';
 import { scraperRunner } from './scraperRunner.js';
 
+const CAPTCHA_ERROR_CODE = 90309999;
+const CAPTCHA_MIN_SIGNAL_MATCH_COUNT = 2;
+
 const isNonEmptyString = (value: unknown): value is string => {
   return typeof value === 'string' && value.trim().length > 0;
+};
+
+const toErrorCode = (value: unknown): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === 'string' && value.trim().length > 0) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+
+  return null;
 };
 
 const hasShopeePayloadError = (result: ShopeeScrapeResult): boolean => {
@@ -57,6 +75,24 @@ export const scraperBot = {
         return {
           success: false,
           error: runnerOutput.error || 'No target Shopee API response was captured.'
+        };
+      }
+
+      const shopeeErrorCode = toErrorCode(result.error);
+      if (shopeeErrorCode === CAPTCHA_ERROR_CODE) {
+        console.log('Detected captcha from Shopee API response');
+        return {
+          success: false,
+          error: 'Shopee returned a captcha error.'
+        };
+      }
+
+      const matchedCaptchaSignals = runnerOutput.captchaSignals || [];
+      if (matchedCaptchaSignals.length >= CAPTCHA_MIN_SIGNAL_MATCH_COUNT) {
+        console.log(`Detected captcha by multi-signal rule: ${matchedCaptchaSignals.join(', ')}`);
+        return {
+          success: false,
+          error: `Shopee captcha detected by signals: ${matchedCaptchaSignals.join(', ')}`
         };
       }
 

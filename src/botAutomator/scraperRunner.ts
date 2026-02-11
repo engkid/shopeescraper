@@ -1,13 +1,21 @@
 import config from '../configurations/index.js';
 import { ShopeeQueryParam, ShopeeScrapeResult } from '../types';
 import { Page } from 'playwright';
+import { mkdir } from 'node:fs/promises';
+import path from 'node:path';
 
 const PREVIEW_LIMIT = 400;
 const SCRAPER_TIMEOUT_MS = 45000;
+const CAPTCHA_INDICATOR_PATTERN = /(captcha|verify|verification|challenge|security check|are you human|robot check)/i;
 
 export type ScraperRunnerResult = {
   result: ShopeeScrapeResult | null;
+  captchaSignals?: string[];
   error?: string;
+};
+
+type CaptchaSignalTracker = {
+  network: boolean;
 };
 
 export class ScraperRunner {
@@ -18,11 +26,14 @@ export class ScraperRunner {
 
   async runScraper(page: Page, param: ShopeeQueryParam): Promise<ScraperRunnerResult> {
     const { storeId, dealId } = param;
+    const captchaSignalTracker: CaptchaSignalTracker = {
+      network: false
+    };
 
     console.log(`scrape starting for storeId=${storeId}, dealId=${dealId}`);
 
-    await this.setupRequestInterception(page);
-    const targetApiResponsePromise = this.waitForTargetApiResponse(page);
+    await this.setupRequestInterception(page, captchaSignalTracker);
+    const targetApiResponsePromise = this.waitForTargetApiResponse(page, storeId, dealId, captchaSignalTracker);
 
     const shopeeProductUrl = `${config.shopee.baseUrl}/a-i.${storeId}.${dealId}`;
     console.log(`Navigating to URL: ${shopeeProductUrl}`);
@@ -32,36 +43,87 @@ export class ScraperRunner {
     return targetApiResponsePromise;
   }
 
-  private async setupRequestInterception(page: Page): Promise<void> {
+  private async setupRequestInterception(page: Page, captchaSignalTracker: CaptchaSignalTracker): Promise<void> {
     await page.route('**/*', async (route) => {
-      console.log(`Intercepted request: ${route.request().url()}`);
+      const requestUrl = route.request().url();
+      console.log(`Intercepted request: ${requestUrl}`);
+
+      if (this.hasCaptchaIndicator(requestUrl)) {
+        captchaSignalTracker.network = true;
+      }
+
       await route.continue();
     });
 
     page.on('request', (request) => {
-      if (this.targetAPIs.some((api) => request.url().includes(api))) {
+      const requestUrl = request.url();
+      if (this.hasCaptchaIndicator(requestUrl)) {
+        captchaSignalTracker.network = true;
+      }
+
+      if (this.targetAPIs.some((api) => requestUrl.includes(api))) {
         console.log('--- Target API Request Intercepted ---');
-        console.log(`Request made: ${request.url()}`);
+        console.log(`Request made: ${requestUrl}`);
         console.log(`Request method: ${request.method()}`);
         console.log(`Request headers: ${JSON.stringify(request.headers(), null, 2)}`);
       }
     });
   }
 
-  private async waitForTargetApiResponse(page: Page): Promise<ScraperRunnerResult> {
+  private async waitForTargetApiResponse(
+    page: Page,
+    storeId: string,
+    dealId: string,
+    captchaSignalTracker: CaptchaSignalTracker
+  ): Promise<ScraperRunnerResult> {
     try {
       const response = await page.waitForResponse(
         (networkResponse) => this.targetAPIs.some((api) => networkResponse.url().includes(api)),
         { timeout: SCRAPER_TIMEOUT_MS }
       );
 
-      return this.parseApiResponse(response.status(), await response.text());
+      await this.capturePageView(page, storeId, dealId);
+
+      const parsedOutput = this.parseApiResponse(response.status(), await response.text());
+      const captchaSignals = new Set<string>(parsedOutput.captchaSignals || []);
+
+      if (captchaSignalTracker.network) {
+        captchaSignals.add('network');
+      }
+
+      return {
+        ...parsedOutput,
+        captchaSignals: Array.from(captchaSignals)
+      };
+
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return {
         result: null,
+        captchaSignals: captchaSignalTracker.network ? ['network'] : [],
         error: `Failed waiting for Shopee API response: ${message}`
       };
+    }
+  }
+
+  private async capturePageView(page: Page, storeId: string, dealId: string): Promise<void> {
+    try {
+      const screenshotDir = path.resolve(process.cwd(), 'logs', 'screenshots');
+      await mkdir(screenshotDir, { recursive: true });
+
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const fileName = `shopee-${storeId}-${dealId}-${timestamp}.png`;
+      const filePath = path.join(screenshotDir, fileName);
+
+      await page.screenshot({
+        path: filePath,
+        fullPage: true
+      });
+
+      console.log(`[Capture] Page screenshot saved: ${filePath}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`[Capture] Failed to save screenshot: ${message}`);
     }
   }
 
@@ -73,6 +135,7 @@ export class ScraperRunner {
     if (!responseBody.trim()) {
       return {
         result: null,
+        captchaSignals: [],
         error: 'Target Shopee API returned an empty response body.'
       };
     }
@@ -83,13 +146,44 @@ export class ScraperRunner {
     } catch {
       return {
         result: null,
+        captchaSignals: [],
         error: 'Target Shopee API returned a non-JSON response body.'
       };
     }
 
+    const captchaSignals = new Set<string>();
+    if (this.hasCaptchaSignalFromPayload(parsedBody)) {
+      captchaSignals.add('api_payload');
+    }
+
     return {
-      result: parsedBody as ShopeeScrapeResult
+      result: parsedBody as ShopeeScrapeResult,
+      captchaSignals: Array.from(captchaSignals)
     };
+  }
+
+  private hasCaptchaIndicator(value: string): boolean {
+    return CAPTCHA_INDICATOR_PATTERN.test(value);
+  }
+
+  private hasCaptchaSignalFromPayload(payload: unknown): boolean {
+    if (typeof payload !== 'object' || payload === null) {
+      return false;
+    }
+
+    const record = payload as Record<string, unknown>;
+    const errorMessage = record.error_msg;
+    const errorValue = record.error;
+
+    if (typeof errorMessage === 'string' && this.hasCaptchaIndicator(errorMessage)) {
+      return true;
+    }
+
+    if (typeof errorValue === 'string' && this.hasCaptchaIndicator(errorValue)) {
+      return true;
+    }
+
+    return false;
   }
 
   private async navigateToDestinationPage(page: Page, url: string): Promise<void> {
