@@ -115,3 +115,7 @@ src/
 2. Controller validates query and calls `scraperBot.scrapeShopee`.
 3. Bot creates a browser/page and executes `scraperRunner.runScraper`.
 4. Runner navigates to Shopee product page, intercepts target API responses, and returns parsed JSON payload.
+
+## Sequence Diagram
+
+![Shopee Scraper Sequence Diagram](out/docs/scrape-sequence-diagram/scrape-sequence-diagram.png)
